@@ -1,0 +1,85 @@
+host: ""
+port: 9999
+auth-dir: /tmp/auth
+api-keys:
+  - dummy-client
+remote-management:
+  allow-remote: true
+  secret-key: $2a$10$ktzDxV1nlHfT8kGDSqiBKeYoZusmyZGytIJYYGxC8lSGor2jznFPS
+  disable-control-panel: true
+plugins:
+  enabled: true
+  dir: /test-plugins
+  configs:
+    anyrouter-retry:
+      enabled: true
+      accept_new_requests: true
+      trace_dir: /tmp/anyrouter-retry-traces
+      config_path: /CLIProxyAPI/config.yaml
+      upstream_hosts:
+        - host.docker.internal
+      models:
+        - gpt-6-astra
+      max_attempts: 0
+      heartbeat_interval: 250ms
+      retry_delay: 0s
+codex-api-key:
+  - api-key: dummy-upstream
+    display-name: AnyRouter-kj
+    base-url: http://host.docker.internal:19997/v1
+    request-retry: 0
+    disable-cooling: true
+    models:
+      - name: gpt-6-astra
+  - api-key: dummy-upstream-qm
+    display-name: AnyRouter-qm
+    base-url: http://host.docker.internal:19997/v1
+    request-retry: 0
+    disable-cooling: true
+    models:
+      - name: gpt-6-astra
+  - api-key: dummy-upstream-bl
+    display-name: AnyRouter-bl
+    base-url: http://host.docker.internal:19997/v1
+    request-retry: 0
+    disable-cooling: true
+    models:
+      - name: gpt-6-astra
+request-retry: 0
+max-retry-interval: 0
+transient-error-cooldown-seconds: -1
+codex:
+  stream-bootstrap-buffering: false
+  stream-bootstrap-timeout: "0"
+logging-to-file: false
+credential-concurrency:
+  cpa-heartbeat-timeout: 3s
+  cpa-cancel-bound: 5s
+  reclaim-grace: 5s
+  cleanup-interval: 5s
+  release-flush-interval: 250ms
+  release-max-backoff: 2s
+  busy-retry-min: 250ms
+  busy-retry-max: 1s
+  max-limit: 1000000
+credential-in-flight:
+  snapshot-interval: 2s
+  stale-after: 10s
+  max-part-bytes: 262144
+  max-part-count: 64
+  max-revision-bytes: 16777216
+  max-aggregate-groups: 100000
+  max-details: 10000
+  max-string-bytes: 256
+  staging-retention: 1m
+discovery:
+  service-type: _ai-gateway._tcp
+  subtypes:
+    - _chat-completions
+    - _responses
+    - _messages
+    - _generate-content
+    - _interactions
+redis-usage-queue-retention-seconds: 60
+disable-cooling: false
+ws-auth: true

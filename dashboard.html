@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AnyRouter · 会话请求</title>
+<style>
+/* The CPAMP theme bridge supplies the host palette; no second theme controller. */
+:root {
+  color-scheme: light;
+  --ink: var(--text-primary, #263244);
+  --muted: var(--text-secondary, #738092);
+  --line: var(--border-color, #e5e9ef);
+  --canvas: var(--bg-secondary, #f3f5f8);
+  --surface: var(--bg-primary, #fff);
+  --subtle: var(--bg-tertiary, #f7f9fb);
+  --accent: var(--primary-color, #4c7cb1);
+  --hover: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  --selected: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  --selection-border: var(--accent);
+  --green: #eaf3ee; --green-text: #38734f;
+  --red: #f9ecee; --red-text: #a44852;
+  --yellow: #f8f1df; --yellow-text: #916c24;
+  --blue: #eaf1f9; --blue-text: #456f9b;
+  --neutral: color-mix(in srgb, var(--ink) 6%, transparent);
+  --notice: var(--yellow); --notice-border: var(--yellow-text);
+  --action: var(--ink); --action-text: var(--canvas);
+  --overlay: rgba(24,32,44,.25);
+  --curve: cubic-bezier(.22,.68,0,1.05);
+  --font-ui: 'SF Pro Display', 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark; --subtle: var(--bg-tertiary, #202733);
+  --green: #20382d; --green-text: #a0d0b2;
+  --red: #3c272e; --red-text: #e8a3ad;
+  --yellow: #393224; --yellow-text: #debf82;
+  --blue: #243346; --blue-text: #a3c3e6;
+  --overlay: rgba(0,0,0,.6);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-cpamp-plugin-host="true"]) {
+    color-scheme: dark; --ink: #e3e7ef; --muted: #9aa6b7; --line: #ffffff14;
+    --canvas: #10141c; --surface: #191f2a; --subtle: #ffffff08; --accent: #87add7;
+    --green: #20382d; --green-text: #a0d0b2; --red: #3c272e; --red-text: #e8a3ad;
+    --yellow: #393224; --yellow-text: #debf82; --blue: #243346; --blue-text: #a3c3e6;
+    --overlay: rgba(0,0,0,.6);
+  }
+}
+* {box-sizing: border-box}
+body {margin: 0; background: var(--canvas); color: var(--ink); font: 13px/1.55 var(--font-ui); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased}
+button,input,select {font: inherit; color: inherit}
+button {cursor: pointer; border: 0; border-radius: 9px; background: var(--neutral); padding: 8px 12px; transition: background 180ms var(--curve), transform 180ms var(--curve), box-shadow 180ms var(--curve)}
+button:hover {background: var(--hover)}
+button:active:not(:disabled) {transform: translateY(1px)}
+button:disabled {opacity: .35; cursor: default}
+button.primary {background: var(--action); color: var(--action-text)}
+input,select {border: 0; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); padding: 10px 13px; min-width: 0}
+input[type="checkbox"] {accent-color: var(--accent); box-shadow: none; width: 14px; height: 14px; padding: 0; margin: 0}
+input::placeholder {color: var(--muted); opacity: .85}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible {outline: 2px solid var(--accent); outline-offset: 3px}
+button[hidden] {display: none}
+a {color: inherit}
+p {margin: 4px 0}
+h1,h2,h3 {text-wrap: balance}
+h1 {font-size: 26px; letter-spacing: -.045em; line-height: 1.15; margin: 0; font-weight: 650}
+h2 {font-size: 22px; letter-spacing: -.025em; line-height: 1.4; margin: 0; font-weight: 600; overflow-wrap: anywhere}
+h3 {font-size: 13px; margin: 19px 0 10px; font-weight: 600; display: flex; align-items: center; gap: 10px}
+h3::after {content: ''; height: 1px; flex: 1; background: var(--line)}
+.muted {color: var(--muted)}
+.mono {font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; overflow-wrap: anywhere}
+.eyebrow {font-size: 10px; color: var(--muted); font-weight: 550; letter-spacing: .08em; margin-bottom: 7px}
+header {max-width: 1680px; margin: auto; padding: 22px 28px 0; display: flex; justify-content: space-between; align-items: center; gap: 20px}
+.page-heading {display: flex; align-items: center; gap: 13px}
+.brand-mark {width: 42px; height: 42px; border-radius: 14px; background: var(--surface); box-shadow: 0 0 0 1px var(--line), inset 0 1px 0 var(--neutral); display: grid; place-items: center; color: var(--accent); flex: none}
+.icon {width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none}
+.page-heading .eyebrow {margin: 0 0 4px; letter-spacing: .025em}
+.page-description {color: var(--muted); font-size: 12px; margin-top: 10px}
+.header-controls {display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end}
+.header-controls label,.sort-toggle {display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); white-space: nowrap}
+#refresh {display: flex; align-items: center; gap: 6px}
+#refresh[aria-busy="true"] {opacity: .6}
+.status {display: inline-flex; align-items: center; gap: 5px; background: var(--neutral); color: var(--muted); font-size: 11px; font-weight: 550; padding: 3px 7px; border-radius: 5px; white-space: nowrap; line-height: 1.6}
+.status::before {content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; opacity: .75}
+.status.green {background: var(--green); color: var(--green-text)}
+.status.red {background: var(--red); color: var(--red-text)}
+.status.yellow {background: var(--yellow); color: var(--yellow-text)}
+.status.blue {background: var(--blue); color: var(--blue-text)}
+main {padding: 0 28px 20px; max-width: 1680px; margin: auto}
+.summary {display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 0; margin: 18px 0 16px; padding: 12px 4px; border-block: 1px solid var(--line)}
+.metric {padding: 0 20px; border-left: 1px solid var(--line)}
+.metric:first-child {border-left: 0; padding-left: 0}
+.metric-label {display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px}
+.metric-value {display: flex; align-items: baseline; gap: 7px}
+.metric b {font-size: 24px; line-height: 1.2; font-weight: 550; letter-spacing: -.035em}
+.metric small {font-size: 11px; color: var(--muted)}
+.metric.live b {color: var(--blue-text)}
+.metric.issue b {color: var(--red-text)}
+.toolbar {display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-bottom: 16px}
+.search-shell {display: flex; align-items: center; position: relative; flex: 1; min-width: 230px}
+.search-shell .icon {position: absolute; left: 12px; color: var(--muted); width: 16px; height: 16px; pointer-events: none}
+.search-shell input {width: 100%; padding-left: 37px}
+#phase {min-width: 128px; font-size: 12px}
+#clear {color: var(--muted); font-size: 12px; background: transparent}
+#scope {flex-basis: 100%; font-size: 11px; margin-top: 1px; display: flex; align-items: center; gap: 6px}
+#message:empty {display: none}
+#message {padding: 10px 14px; margin-bottom: 12px; border-radius: 9px; background: var(--red)}
+.error {color: var(--red-text); font-size: 12px}
+.layout {display: grid; grid-template-columns: minmax(310px,350px) minmax(0,1fr); gap: 16px; align-items: stretch}
+.panel {min-width: 0; background: var(--surface); border-radius: 16px; padding: 4px; box-shadow: 0 0 0 1px var(--line), inset 0 1px 0 var(--neutral); overflow: hidden}
+.panel-title {display: flex; justify-content: space-between; align-items: center; padding: 13px 12px; gap: 8px; font-size: 12px}
+.panel-title b {font-weight: 600}
+.panel-heading {display: flex; gap: 8px; align-items: center}
+#count {font-size: 10px; background: var(--neutral); padding: 2px 6px; border-radius: 5px}
+.fold-controls {display: flex; gap: 4px; margin-left: auto}
+.fold-controls button {background: transparent; color: var(--muted); font-size: 10px; padding: 4px 6px; border-radius: 5px; white-space: nowrap}
+.fold-controls button:hover {background: var(--hover)}
+.feed {height: max(380px,calc(100dvh - 310px)); overflow: auto; scrollbar-gutter: stable; padding: 0 4px}
+.feed,.detail,.table-wrap,.sequence {scrollbar-width: thin; scrollbar-color: var(--line) transparent}
+.session-group {margin-bottom: 6px; border-radius: 11px; overflow: hidden; background: color-mix(in srgb,var(--ink) 2%,transparent)}
+.session-group.selected-session {box-shadow: inset 2px 0 0 var(--accent); background: var(--selected)}
+.session-head {padding: 14px 12px 11px}
+.session-heading {display: flex; align-items: flex-start; gap: 8px}
+.session-head button {padding: 0; background: transparent; text-align: left}
+.session-head .collapse {display: grid; place-items: center; width: 20px; height: 25px; color: var(--muted); flex: none; border-radius: 5px}
+.collapse .icon {width: 14px; height: 14px; transition: transform 220ms var(--curve)}
+.collapse[aria-expanded="true"] .icon {transform: rotate(90deg)}
+.session-link {min-width: 0; flex: 1; line-height: 1.5; font-size: 13px; font-weight: 600}
+.session-title {display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 3px}
+.session-head .collapse:hover,.session-link:hover {color: var(--accent)}
+.session-head .session-current {display: block; width: 100%; padding: 10px 11px; margin: 10px 0 9px; background: var(--surface); border-radius: 9px; box-shadow: inset 0 0 0 1px var(--line); font-size: 11px; text-align: left}
+.session-current:hover {box-shadow: inset 0 0 0 1px var(--accent)}
+.session-current-top {display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px}
+.current-provider {font-weight: 550; font-size: 12px}
+.current-metrics {display: flex; justify-content: space-between; align-items: center; gap: 7px; color: var(--muted); margin-top: 4px; font-size: 10px}
+.session-meta {display: flex; align-items: center; justify-content: space-between; gap: 7px; flex-wrap: wrap; font-size: 10px; color: var(--muted)}
+.session-id {font-size: 10px}
+.session-head .session-filter {font-size: 10px; color: var(--muted); margin-left: auto}
+.session-filter:hover {color: var(--accent)}
+.request {display: block; width: calc(100% - 12px); margin: 0 6px 5px; padding: 11px 12px; text-align: left; border-radius: 8px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line)}
+.request.selected {background: var(--selected); box-shadow: inset 2px 0 0 var(--selection-border), inset 0 0 0 1px var(--line)}
+.request-top,.request-bottom {display: flex; justify-content: space-between; gap: 8px; align-items: center}
+.request-title {min-width: 0; font-weight: 550; font-size: 12px}
+.request-title small {font-weight: 400; color: var(--muted); margin-left: 6px; font-size: 10px}
+.request-bottom {font-size: 10px; color: var(--muted); margin-top: 5px; flex-wrap: wrap}
+.request-note {font-size: 10px; color: var(--yellow-text); margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap}
+.agent-tag {color: var(--blue-text); font-size: 10px; margin-top: 5px}
+.more-requests {background: transparent; font-size: 11px; color: var(--muted); width: 100%; padding: 8px}
+.list-pager {margin: 3px 6px 0; padding: 10px 5px; border-top: 1px solid var(--line); font-size: 11px}
+.list-pager button {background: transparent; font-size: 11px; padding: 5px 8px}
+.detail {padding: 20px 22px; height: max(476px,calc(100dvh - 214px)); overflow: auto; scrollbar-gutter: stable}
+.detail-top {display: flex; justify-content: space-between; align-items: flex-start; gap: 16px}
+.detail-subtitle {color: var(--muted); font-size: 11px; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 8px}
+.detail-subtitle span+span::before {content: '·'; margin-right: 7px; color: var(--muted)}
+.request-ref {display: block; font-size: 10px; margin-top: 6px; color: var(--muted)}
+.result-strip {display: flex; align-items: flex-start; gap: 12px; padding: 12px; margin-top: 14px; border-radius: 11px; background: var(--neutral)}
+.result-strip.green {background: var(--green)}
+.result-strip.red {background: var(--red)}
+.result-strip.yellow {background: var(--yellow)}
+.result-strip.blue {background: var(--blue)}
+.result-icon {width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--surface); flex: none}
+.result-strip.green .result-icon {color: var(--green-text)}
+.result-strip.red .result-icon {color: var(--red-text)}
+.result-strip.yellow .result-icon {color: var(--yellow-text)}
+.result-strip.blue .result-icon {color: var(--blue-text)}
+.result-strip strong {font-weight: 600; font-size: 13px}
+.result-strip p {font-size: 11px; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere}
+.facts {display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); margin: 16px 0 8px; padding: 0 0 16px; border-bottom: 1px solid var(--line)}
+.fact {padding: 0 15px; border-left: 1px solid var(--line)}
+.fact:first-child {border: 0; padding-left: 0}
+.fact span {display: block; color: var(--muted); font-size: 10px; margin-bottom: 5px}
+.fact b {font-size: 21px; font-weight: 550; letter-spacing: -.025em; white-space: nowrap}
+.fact b small {font-size: 10px; font-weight: 400; color: var(--muted); margin-left: 4px; letter-spacing: 0}
+.notice {padding: 11px 13px; margin: 14px 0; border-radius: 9px; box-shadow: inset 2px 0 0 var(--notice-border); background: var(--notice); font-size: 11px}
+.sequence {display: flex; align-items: stretch; flex-wrap: wrap; gap: 7px; max-height: 164px; overflow: auto; padding: 2px 1px 4px}
+.attempt-step {display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-radius: 9px; background: var(--neutral); box-shadow: inset 0 0 0 1px var(--line); min-width: 138px}
+.step-number {font-size: 10px; color: var(--muted); font-family: 'SF Mono',Menlo,monospace}
+.step-content b {display: block; font-size: 11px; font-weight: 550}
+.step-content span {display: block; font-size: 10px; color: var(--muted); margin-top: 3px}
+.attempt-step.green {background: var(--green)}
+.attempt-step.green .step-content span {color: var(--green-text)}
+.attempt-step.red .step-content span {color: var(--red-text)}
+.attempt-step.yellow .step-content span {color: var(--yellow-text)}
+.step-arrow {align-self: center; color: var(--muted); opacity: .65; font-size: 12px}
+.table-wrap {overflow: auto; border-radius: 9px; box-shadow: inset 0 0 0 1px var(--line)}
+table {border-collapse: collapse; width: 100%; font-size: 11px; white-space: nowrap}
+th,td {text-align: left; border-bottom: 1px solid var(--line); padding: 11px 12px; vertical-align: top}
+th {color: var(--muted); font-size: 10px; font-weight: 500; background: var(--neutral)}
+tbody tr:last-child td {border-bottom: 0}
+tbody tr:hover {background: var(--hover)}
+td.reason {white-space: normal; min-width: 155px; max-width: 270px; overflow-wrap: anywhere}
+.trace-code {display: block; font-size: 10px; color: var(--muted); margin-top: 4px}
+.attempt-number {font-weight: 600; font-size: 11px}
+.pager {display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 10px; color: var(--muted); margin-top: 10px}
+.pager div {display: flex; gap: 5px}
+.pager button {font-size: 10px; padding: 5px 8px; background: transparent}
+.technical,.identity {margin-top: 18px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 11px}
+.technical summary,.identity summary {cursor: pointer; color: var(--muted); font-size: 11px}
+.technical summary:hover,.identity summary:hover {color: var(--ink)}
+.technical[open] summary,.identity[open] summary {margin-bottom: 12px}
+.technical h3 {font-size: 12px; margin-top: 16px}
+.timing {padding: 12px 14px; background: var(--neutral); border-radius: 9px; font-size: 11px; line-height: 1.9}
+.timing p {font-size: 10px; margin-top: 8px; max-width: 75ch}
+.id-block {display: grid; grid-template-columns: 82px minmax(0,1fr); gap: 9px 12px; padding: 8px 0}
+.copy-id {font-size: 10px; padding: 2px 7px; margin-left: 5px; border-radius: 5px}
+.footer {font-size: 10px; color: var(--muted); line-height: 1.8; margin-top: 13px}
+.empty {display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 70px 22px; gap: 10px; color: var(--muted); text-align: center; min-height: 270px}
+.empty .icon {width: 28px; height: 28px; opacity: .6}
+.empty strong {font-size: 14px; font-weight: 550; color: var(--ink)}
+.empty p {font-size: 12px; max-width: 30ch}
+.skeleton {padding: 20px}
+.skeleton-line {height: 12px; background: var(--neutral); border-radius: 4px; margin-bottom: 12px; width: 70%; animation: reveal 650ms var(--curve) both}
+.skeleton-line:nth-child(2n) {width: 45%; margin-bottom: 24px}
+@keyframes reveal {from {opacity: 0; transform: translateY(5px)} to {opacity: 1; transform: translateY(0)}}
+dialog {background: var(--surface); color: var(--ink); border: 0; box-shadow: 0 0 0 1px var(--line); border-radius: 18px; max-width: 460px; width: calc(100% - 36px); padding: 28px}
+dialog::backdrop {background: var(--overlay)}
+dialog h2 {font-size: 20px; margin-bottom: 12px}
+dialog input {width: 100%; margin: 16px 0 10px}
+.dialog-actions {display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px}
+/* Fit the desktop workspace to the iframe; scroll the two panes independently. */
+@media (min-width: 861px) and (min-height: 640px) {
+  body {height: 100dvh; display: flex; flex-direction: column; overflow: hidden}
+  header {width: 100%; flex: none}
+  main {width: 100%; flex: 1; min-height: 0; display: flex; flex-direction: column}
+  .summary,.toolbar,#message,main > .footer {flex: none}
+  .layout {flex: 1; min-height: 0}
+  .panel {display: flex; flex-direction: column; min-height: 0}
+  .panel-title {flex: none}
+  .feed {height: auto; min-height: 0; flex: 1}
+  .detail {height: auto; min-height: 0; flex: 1}
+}
+@media (max-width: 1120px) {
+  header {padding-inline: 20px} main {padding-inline: 20px}
+  .layout {grid-template-columns: 310px minmax(0,1fr); gap: 12px}
+  .detail {padding: 20px 16px} .fact {padding-inline: 10px}
+  .metric {padding-inline: 14px} .metric b {font-size: 24px}
+  .fact b {font-size: 18px}
+}
+@media (max-width: 860px) {
+  header {align-items: flex-start} .header-controls {gap: 8px} .header-controls label {flex-basis: 100%; justify-content: flex-end}
+  .layout {grid-template-columns: 1fr} .feed {height: 390px} .detail {height: auto; min-height: 450px; max-height: none}
+  .summary {grid-template-columns: repeat(3,minmax(0,1fr)); row-gap: 16px}
+  .metric:nth-child(4) {border-left: 0; padding-left: 0} .metric b {font-size: 24px}
+  .session-title {white-space: normal} .toolbar .sort-toggle {margin-left: auto}
+}
+@media (max-width: 520px) {
+  header {padding: 20px 16px 0; gap: 14px; flex-wrap: wrap} main {padding-inline: 16px}
+  h1 {font-size: 25px} .page-description {max-width: 32ch}
+  .header-controls {width: 100%; justify-content: flex-start} .header-controls label {flex-basis: auto; margin-left: auto}
+  .search-shell {flex-basis: 100%} .toolbar {gap: 8px}
+  .facts {grid-template-columns: repeat(2,minmax(0,1fr)); row-gap: 16px}
+  .fact:nth-child(3) {border: 0; padding-left: 0}
+  .detail {padding: 20px 14px} .detail-top {gap: 10px} h2 {font-size: 20px}
+  .id-block {grid-template-columns: 62px minmax(0,1fr)}
+  .metric {padding-inline: 10px}
+}
+@media (prefers-reduced-motion: reduce) {*,*::before,*::after {animation: none !important; transition: none !important}}
+</style></head><body>
+<header>
+  <div><div class="page-heading"><span class="brand-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M5 6h9a4 4 0 0 1 0 8H5m3-3-3 3 3 3M19 18h-4M5 3v3"/></svg></span><div><div class="eyebrow">AnyRouter · 请求追踪</div><h1>会话工作台</h1></div></div><p class="page-description">从会话出发，查看供应商尝试、重试与请求结果。</p></div>
+  <div class="header-controls"><span id="runtime" class="status">尚未连接</span><button id="refresh"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg>刷新</button><label><input id="auto" type="checkbox" checked>自动刷新</label><button id="connect">连接</button></div>
+</header>
+<main>
+  <div id="summary" class="summary" aria-label="当前页请求统计"></div>
+  <div class="toolbar"><div class="search-shell"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="search" type="search" aria-label="搜索会话或请求" placeholder="搜索会话、项目、sessionId 或供应商"></div><select id="phase" aria-label="筛选请求状态"><option value="all">全部状态</option><option value="waiting_upstream">等待上游</option><option value="retrying">正在重试</option><option value="streaming">正在输出</option><option value="completed">已完成</option><option value="failed">失败</option><option value="interrupted">输出后中断</option><option value="cancelled">已取消</option><option value="unknown_after_restart">重启后结果未知</option></select><button id="clear">清除筛选</button><label class="sort-toggle"><input id="activeFirst" type="checkbox" checked>处理中优先</label><div id="scope" class="muted">统计当前页 · 仅展示插件接管并记录的请求。</div></div>
+  <div id="message" role="status" class="error"></div>
+  <div class="layout">
+    <section class="panel" aria-label="会话与请求列表"><div class="panel-title"><div class="panel-heading"><b>会话</b><span id="count" class="muted"></span></div><div class="fold-controls"><button id="expandAll" title="展开当前页所有会话">全部展开</button><button id="collapseAll" title="收起当前页所有会话">全部收起</button></div></div><div id="feed" class="feed"><div class="empty"><strong>连接后查看会话</strong><p>从 CPAMA 的插件菜单进入，可复用已有登录。</p></div></div><div class="panel-title list-pager"><button id="prev">上一页</button><span id="page" class="muted"></span><button id="next">下一页</button></div></section>
+    <section class="panel" aria-label="请求详情"><div id="detail" class="detail"><div class="empty"><strong>查看请求的完整过程</strong><p>点击左侧当前请求，或展开会话选择历史请求。</p></div></div></section>
+  </div><p id="footer" class="footer">完成表示收到 response.completed 并提交到宿主下游流，不代表整个会话任务结束。</p>
+</main>
+<dialog id="login"><h2>连接 CPA</h2><p class="muted">请从 CPA Manager Plus 的“AnyRouter 会话请求”菜单进入，自动复用已有登录。独立访问可输入 CPA 管理密钥。</p><input id="key" type="password" autocomplete="off" aria-label="CPA 管理密钥" placeholder="CPA 管理密钥"><p class="muted">管理密钥仅在当前页面内存中使用。</p><div id="loginError" class="error"></div><div class="dialog-actions"><button id="cancelLogin">取消</button><button id="loginButton" class="primary">连接</button></div></dialog>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const labels={accepted:'已接收',waiting_upstream:'等待上游',retrying:'正在重试',streaming:'正在输出',completed:'已完成',failed:'失败',interrupted:'输出后中断',cancelled:'已取消',permanent_error:'永久错误',credential_rejected:'凭据已排除',retry:'失败后重试',unknown_after_restart:'重启后结果未知'};
+const color=p=>p==='completed'?'green':['failed','permanent_error','interrupted','credential_rejected'].includes(p)?'red':['waiting_upstream','retrying','retry'].includes(p)?'yellow':p==='streaming'?'blue':'';
+const badge=p=>`<span class="status ${color(p)}">${esc(labels[p]||p)}</span>`;
+const clock=n=>n?new Date(n).toLocaleTimeString('zh-CN',{hour12:false}):'—';
+const date=n=>n?new Date(n).toLocaleString('zh-CN',{hour12:false}):'—';
+const duration=ms=>ms<1000?`${Math.max(0,ms)} ms`:ms<60000?`${(ms/1000).toFixed(1)} 秒`:`${Math.floor(ms/60000)} 分 ${Math.floor(ms/1000)%60} 秒`;
+const openSessions=new Set(),expandedGroups=new Set();
+try{const saved=JSON.parse(localStorage.getItem('anyrouter-retry-open-sessions')||'[]');if(Array.isArray(saved))for(const id of saved.slice(0,1000))if(typeof id==='string')openSessions.add(id)}catch{}
+function saveOpenSessions(){try{localStorage.setItem('anyrouter-retry-open-sessions',JSON.stringify([...openSessions].slice(-1000)))}catch{}}
+const active=r=>!r.ended_at&&r.phase!=='unknown_after_restart';
+const short=v=>v?String(v).slice(-8):'未知';
+const provider=r=>r.last_attempt?.credential_name||'尚未选择凭据';
+const agent=r=>r.agent_name&&r.agent_name!=='/root'?r.agent_name.replace(/^\/root\/?/,''):'';
+const heading=r=>r.session_title||r.project||('会话 · '+short(r.session_id));
+const icon=(kind)=>`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${({chevron:'<path d="m9 5 7 7-7 7"/>',check:'<path d="m5 12 4 4L19 6"/>',error:'<path d="m7 7 10 10M17 7 7 17"/>',wait:'<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',stream:'<path d="M4 12h3l3-6 4 12 3-6h3"/>',empty:'<rect x="4" y="5" width="16" height="14" rx="3"/><path d="M8 9h8M8 13h5"/>'})[kind]||''}</svg>`;
+const emptyState=(title,description)=>`<div class="empty">${icon('empty')}<strong>${esc(title)}</strong><p>${esc(description)}</p></div>`;
+const skeleton=()=>'<div class="skeleton" aria-label="正在加载" role="status">'+Array.from({length:6},()=>'<div class="skeleton-line"></div>').join('')+'</div>';
+function rememberFocus(container){const el=document.activeElement;if(!el||!container.contains(el))return null;for(const key of ['toggle','current','id','session','more','copy'])if(el.dataset[key])return {key,value:el.dataset[key],className:el.classList[0]};if(el.matches('details > summary'))return {summary:el.parentElement.className};return el.id?{id:el.id}:null}
+function restoreFocus(container,ref){if(!ref)return;const el=ref.summary?[...container.querySelectorAll('details')].find(e=>e.className===ref.summary)?.querySelector('summary'):ref.id?document.getElementById(ref.id):[...container.querySelectorAll('[data-'+ref.key+']')].find(e=>e.dataset[ref.key]===ref.value&&e.classList[0]===ref.className);el?.focus({preventScroll:true})}
+const attemptStep=x=>`<div class="attempt-step ${color(x.outcome)}"><span class="step-number">${x.number.toString().padStart(2,'0')}</span><div class="step-content"><b>${esc(x.credential_name)}</b><span>${esc(labels[x.outcome]||x.outcome)}${x.reason?' · '+esc(x.reason):''}</span></div></div>`;
+let renderedDetail='';
+let embeddedAuth=false;
+let auth='',offset=0,total=0,session='',selected='',attemptOffset=0,rows=[],busy=false,detailBusy=false;
+// Reuse CPAMP's existing same-origin persisted login. The host uses this
+// versioned XOR storage format; no credentials are sent to another origin.
+function restoreManagerLogin(){
+ try{
+  if(window.parent===window)return false;
+  if(window.parent.location.origin!==location.origin)return false;
+  if(!window.parent.location.hash.startsWith('#/plugin-pages/anyrouter-retry/'))return false;
+  const raw=localStorage.getItem('cli-proxy-auth');if(!raw)return false;
+  let text=raw;
+  if(raw.startsWith('enc::v2::')||raw.startsWith('enc::v1::')){
+   const tag='cli-proxy-api-webui::secure-storage';
+   const key=new TextEncoder().encode(raw.startsWith('enc::v2::')?tag+'|v2|'+location.host:tag+'|'+location.host+'|'+navigator.userAgent);
+   const data=Uint8Array.from(atob(raw.slice(9)),c=>c.charCodeAt(0));
+   text=new TextDecoder().decode(data.map((v,i)=>v^key[i%key.length]));
+  }
+  const state=JSON.parse(text).state;
+  if(!state?.managementKey||new URL(state.apiBase).origin!==location.origin)return false;
+  auth=state.managementKey;embeddedAuth=true;return true;
+ }catch{return false}
+}
+restoreManagerLogin();
+async function api(path){const base='/v0/management/plugins/anyrouter-retry/';const r=await fetch(base+path,{headers:{Authorization:'Bearer '+auth},cache:'no-store'});if(!r.ok){if(r.status===401||r.status===403){auth='';throw Error('访问已过期或密钥无效，请重新连接。')}throw Error(`CPA 返回 HTTP ${r.status}`)}return r.json()}
+function filter(){offset=0;session='';selected='';attemptOffset=0;load()}
+async function load(){if(!auth||busy)return;busy=true;$('refresh').setAttribute('aria-busy','true');if(!rows.length)$('feed').innerHTML=skeleton();try{const q=new URLSearchParams({q:$('search').value,phase:$('phase').value,limit:200,offset,session});const data=await api('requests?'+q);rows=data.requests;total=data.total;const rt=data.runtime;$('runtime').textContent=`v${rt.version} · ${rt.accept_new_requests?'正在接管':'暂停新请求'}`;$('runtime').className='status '+(rt.accept_new_requests?'green':'');$('message').textContent=rt.trace_storage_errors_current_instance?'记录写入曾失败，明细可能不完整；请求仍按原重试逻辑处理。':'';if(!selected&&rows.length){selected=rows[0].id}renderFeed(data.server_time);$('footer').textContent=`更新于 ${clock(data.server_time)} · 保留 ${rt.trace_retention_days} 天 · 完成表示收到 response.completed 并提交到宿主下游流，不代表整个会话任务结束。`;$('scope').textContent=session?`会话 ${session} · 只展示插件接管的请求`:'统计当前页 · 按会话分组 · 仅展示插件接管并记录的请求。';if(!selected&&rows.length){selected=rows[0].id}if(selected)await loadDetail();else {renderedDetail='';$('detail').innerHTML=emptyState('没有匹配的请求','调整筛选条件，或清除筛选查看全部记录。');}$('loginError').textContent=''}catch(e){$('message').textContent=e.message}finally{busy=false;$('refresh').setAttribute('aria-busy','false')}}
+function renderFeed(now){
+ const scroll=$('feed').scrollTop,focus=rememberFocus($('feed')),groups=new Map();
+ for(const r of rows){const key=r.session_id||('missing:'+r.id);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r)}
+ const sorted=[...groups];
+ if($('activeFirst').checked)sorted.sort((a,b)=>Number(b[1].some(active))-Number(a[1].some(active)));
+ let html='';
+ for(const [id,rs] of sorted){
+  const first=rs[0],running=rs.filter(active).length,done=rs.filter(r=>r.phase==='completed').length,retried=rs.filter(r=>r.phase==='completed'&&r.retries>0).length;
+  const project=first.project||'会话 · '+short(first.session_id);
+  const current=rs.find(r=>active(r)&&r.thread_id===r.session_id)||rs.find(active)||first;
+  const currentReason=current.final_reason||current.last_failure?.reason;
+  const currentLabel=agent(current)?'子代理 '+agent(current):'主线程';
+  html+=`<article class="session-group ${rs.some(r=>r.id===selected)?'selected-session':''}"><div class="session-head"><div class="session-heading"><button class="collapse" data-toggle="${esc(id)}" aria-label="${openSessions.has(id)?'收起':'展开'} ${esc(project)}" aria-expanded="${openSessions.has(id)}">${icon('chevron')}</button><button class="session-link" data-toggle="${esc(id)}" title="${esc(heading(first))} · 点击展开 / 收起请求">${esc(project)}<span class="session-title">${esc(first.session_title||'未同步会话标题')}</span></button></div><button class="session-current" data-current="${esc(current.id)}" aria-label="查看 ${esc(project)} 的${active(current)?'当前':'最近'}请求"><div class="session-current-top"><span class="muted">${esc(currentLabel)}</span>${badge(current.phase)}</div><div class="current-provider">${esc(provider(current))}</div><div class="current-metrics"><span>${current.attempts} 次尝试 · ${current.retries} 次重试</span><span>${active(current)?'已用时':'耗时'} ${duration((current.ended_at||now)-current.started_at)}</span></div>${currentReason?`<div class="request-note">最近失败：${esc(currentReason)}</div>`:''}</button><div class="session-meta"><span>${running?running+' 条处理中 · ':''}${done} 条完成${retried?' · '+retried+' 条经重试完成':''}</span><span class="mono session-id" title="${esc(first.session_id)}">${esc(short(first.session_id))}</span>${first.session_id?`<button class="session-filter" data-session="${esc(first.session_id)}">只看此会话</button>`:''}</div></div>`;
+  if(!openSessions.has(id)){html+='</article>';continue;}
+  const requests=[...rs];if($('activeFirst').checked)requests.sort((a,b)=>Number(active(b))-Number(active(a)));
+  const visible=expandedGroups.has(id)?requests:requests.slice(0,Math.max(5,running));
+  for(const r of visible){
+   const last=r.last_attempt,reason=r.final_reason||r.last_failure?.reason||r.last_failure?.error_code;
+   html+=`<button class="request ${r.id===selected?'selected':''}" data-id="${esc(r.id)}"><div class="request-top"><span class="request-title">${esc(provider(r))}<small>${clock(r.started_at)}</small></span>${badge(r.phase)}</div><div class="request-bottom"><span>${r.attempts} 次尝试 · ${r.retries} 次重试</span><span>${active(r)?'已用时':'耗时'} ${duration((r.ended_at||now)-r.started_at)}</span></div>${agent(r)?`<div class="agent-tag">子代理 · ${esc(agent(r))}</div>`:''}${reason?`<div class="request-note" title="${esc(reason)}">${r.final_reason?'结束原因':'最近失败'}：${esc(reason)}</div>`:''}<div class="request-bottom"><span>${esc(r.model)}</span><span class="mono" title="请求 ${esc(r.id)}">请求 ${esc(short(r.id))}</span></div></button>`;
+  }
+  if(requests.length>visible.length)html+=`<button class="more-requests" data-more="${esc(id)}">展开其余 ${requests.length-visible.length} 条请求</button>`;
+  html+='</article>';
+ }
+ $('feed').innerHTML=html||emptyState('没有匹配的请求','调整状态或搜索条件，查看已记录的请求。');$('feed').scrollTop=scroll;
+ $('feed').querySelectorAll('[data-current]').forEach(b=>b.onclick=()=>{selected=b.dataset.current;attemptOffset=0;renderFeed(Date.now());loadDetail()});
+ $('feed').querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>{selected=b.dataset.id;attemptOffset=0;renderFeed(Date.now());loadDetail()});
+ $('feed').querySelectorAll('[data-more]').forEach(b=>b.onclick=()=>{expandedGroups.add(b.dataset.more);renderFeed(Date.now())});
+ $('feed').querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{const id=b.dataset.toggle;openSessions.has(id)?openSessions.delete(id):openSessions.add(id);saveOpenSessions();renderFeed(Date.now())});
+ $('feed').querySelectorAll('[data-session]').forEach(b=>b.onclick=()=>{if(!b.dataset.session)return;session=b.dataset.session;$('search').value='';$('phase').value='all';offset=0;selected='';load()});
+ restoreFocus($('feed'),focus);
+ $('count').textContent=`${groups.size} 个 · ${total} 请求`;$('page').textContent=total?`${offset+1}–${Math.min(offset+200,total)}`:'0 条';$('prev').disabled=offset===0;$('next').disabled=offset+200>=total;
+ const done=rows.filter(r=>r.phase==='completed');
+ const metrics=[['本页会话',groups.size,'个',''],['处理中',rows.filter(active).length,'请求','live'],['已完成',done.length,'请求',''],['经重试完成',done.filter(r=>r.attempts>1).length,'请求',''],['失败 / 中断',rows.filter(r=>['failed','interrupted'].includes(r.phase)).length,'请求','issue'],['累计尝试',rows.reduce((n,r)=>n+r.attempts,0),'次','']];
+ $('summary').innerHTML=metrics.map(([label,value,unit,tone])=>`<div class="metric ${tone}"><span class="metric-label">${label}</span><div class="metric-value"><b>${value}</b><small>${unit}</small></div></div>`).join('');
+}
+async function loadDetail(){
+ if(!selected||detailBusy)return;
+ detailBusy=true;
+ const wanted=selected,details=$('detail');
+ if(renderedDetail!==wanted){details.innerHTML=skeleton();details.scrollTop=0;}
+ try{
+  const d=await api('trace?'+new URLSearchParams({id:wanted,offset:attemptOffset,limit:200}));
+  if(selected!==wanted)return;
+  const r=d.request,now=d.server_time,a=r.last_attempt,attempts=d.attempts;
+  const same=renderedDetail===wanted,scroll=same?details.scrollTop:0,focus=rememberFocus(details);
+  const identityOpen=same&&details.querySelector('.identity')?.open,technicalOpen=same&&details.querySelector('.technical')?.open;
+  let warning='';
+  if(r.phase==='unknown_after_restart')warning+='宿主已重启，这条旧请求没有记录终态，最终结果未知。';
+  if(r.details_truncated)warning+='逐次明细达到大小上限；累计次数继续记录，后续顺序未保存。';
+  if(r.storage_errors)warning+=`记录写入失败 ${r.storage_errors} 次，明细可能不完整。`;
+  const sequence=[...attempts,...(a&&!a.ended_at?[a]:[])];
+  const resultTitle=a?`${r.phase==='completed'?'完成于':'最近 / 当前'} ${a.credential_name} · 第 ${a.number} 次尝试`:'正在选择供应商凭据';
+  const resultNote=r.final_reason?`结束原因：${r.final_reason}${r.final_code?' · '+r.final_code:''}`:r.last_failure?`最近失败：第 ${r.last_failure.number} 次 · ${r.last_failure.credential_name} · ${r.last_failure.reason||r.last_failure.error_code||r.last_failure.outcome}`:r.phase==='completed'?'已收到 response.completed，输出已提交到宿主下游流。':a&&!a.ended_at?`本次尝试已用时 ${duration(now-a.started_at)}，当前${labels[r.phase]||r.phase}。`:'尚无失败记录。';
+  details.innerHTML=`
+   <div class="detail-top"><div><div class="eyebrow">请求详情</div><h2>${esc(heading(r))}</h2><div class="detail-subtitle">${r.project?`<span>${esc(r.project)}</span>`:''}${agent(r)?`<span>子代理 ${esc(agent(r))}</span>`:''}<span>${esc(r.model)}</span><span>${clock(r.started_at)}</span></div><span class="request-ref mono">请求 ${esc(short(r.id))} · 插件 v${esc(r.version)}</span></div>${badge(r.phase)}</div>
+   <div class="result-strip ${color(r.phase)}"><span class="result-icon">${icon(r.phase==='completed'?'check':color(r.phase)==='red'?'error':r.phase==='streaming'?'stream':'wait')}</span><div><strong>${esc(resultTitle)}</strong><p>${esc(resultNote)}</p></div></div>
+   <div class="facts"><div class="fact"><span>总尝试</span><b>${r.attempts}<small>次</small></b></div><div class="fact"><span>重试</span><b>${r.retries}<small>次</small></b></div><div class="fact"><span>${active(r)?'已用时':'累计耗时'}</span><b>${duration((r.ended_at||now)-r.started_at)}</b></div><div class="fact"><span>首次输出</span><b>${r.first_output_at?duration(r.first_output_at-r.started_at):'尚未输出'}</b></div></div>
+   ${warning?`<div class="notice">${esc(warning)}</div>`:''}
+   <h3>供应商尝试顺序${d.total>200?' · 当前明细页':''}</h3>
+   <div class="sequence" aria-label="供应商尝试顺序">${sequence.length?sequence.map(attemptStep).join('<span class="step-arrow" aria-hidden="true">→</span>'):'<span class="muted">尚未开始尝试</span>'}</div>
+   <h3>逐次结果</h3>
+   <div class="table-wrap"><table aria-label="逐次尝试结果"><thead><tr><th>次数 / 开始</th><th>AnyRouter</th><th>耗时</th><th title="CPA 宿主返回的状态，可能由流内错误映射">CPA 状态</th><th>结果</th><th>原因 / 上游 Trace</th></tr></thead><tbody>${sequence.map(x=>`<tr><td><span class="attempt-number">#${x.number}</span><br><span class="muted">${clock(x.started_at)}</span></td><td>${esc(x.credential_name)}</td><td>${duration((x.ended_at||now)-x.started_at)}</td><td>${x.http_status||'—'}</td><td>${badge(x.outcome)}</td><td class="reason">${esc(x.reason||'—')}<span class="trace-code mono">${esc(x.error_code||'')}${x.upstream_trace?'<br>Trace: '+esc(x.upstream_trace):''}</span></td></tr>`).join('')}</tbody></table></div>
+   <div class="pager"><span>${d.total} 条已保存尝试 · ${d.total?attemptOffset+1:0}–${Math.min(attemptOffset+200,d.total)}</span><div><button id="attemptPrev" ${attemptOffset===0?'disabled':''}>上一页</button><button id="attemptNext" ${attemptOffset+200>=d.total?'disabled':''}>下一页</button></div></div>
+   <h3>供应商调用汇总</h3><div class="table-wrap"><table aria-label="供应商调用汇总"><thead><tr><th>凭据</th><th>尝试</th><th>完成</th><th>失败</th></tr></thead><tbody>${Object.values(r.credentials).map(g=>`<tr><td>${esc(g.name)}</td><td>${g.attempts}</td><td>${g.completed}</td><td>${g.failed}</td></tr>`).join('')}</tbody></table></div>
+   ${a&&a.host_open_ms!==undefined?`<details class="technical"><summary>等待与转发计时 · 查看 CPA 与插件耗时</summary><div class="timing"><div>CPA 打开模型流：<b>${!a.host_opened_at&&active(r)?'进行中，最终耗时尚未返回':duration(a.host_open_ms)}</b></div><div>首个 CPA 数据帧 → 首次转发：<b>${a.first_forwarded_at&&a.first_host_frame_at?duration(a.first_forwarded_at-a.first_host_frame_at):'尚未转发'}</b></div><div>事件 JSON 检测累计：${(a.parse_micros/1000).toFixed(2)} ms · 下游 emit 累计：${(a.emit_micros/1000).toFixed(2)} ms</div><p class="muted">CPA 打开流的耗时包含上游等待及 CPA 原生启动缓冲；首帧到转发的间隔也可能包含等待后续内容，不是插件纯 CPU 耗时。emit 包含下游消费等待。</p></div></details>`:''}
+   <details class="identity"><summary>会话与请求标识 · 展开查看 / 复制</summary><div class="id-block"><span class="muted">请求 ID</span><span class="mono">${esc(r.id)} <button class="copy-id" data-copy="${esc(r.id)}">复制</button></span><span class="muted">Session</span><span class="mono">${esc(r.session_id||'未提供；此请求独立展示')} ${r.session_id?`<button class="copy-id" data-copy="${esc(r.session_id)}">复制</button>`:''}</span><span class="muted">Thread</span><span class="mono">${esc(r.thread_id||'未提供')}</span><span class="muted">父线程</span><span class="mono">${esc(r.parent_thread_id||'—')}</span><span class="muted">Turn</span><span class="mono">${esc(r.turn_id||'未提供')}</span><span class="muted">身份来源</span><span>${esc(r.identity_source)}</span><span class="muted">开始时间</span><span>${date(r.started_at)} · ${esc(r.model)}</span></div></details>
+   <p class="footer">CPA 返回 200 不等于完成；CPA 可能将上游 HTTP 200 内的限流错误映射为 503。这里展示 CPA 状态，凭据名称为调用时名称。记录更新于 ${clock(r.updated_at)}。</p>`;
+  renderedDetail=wanted;
+  if(identityOpen)details.querySelector('.identity').open=true;
+  if(technicalOpen&&details.querySelector('.technical'))details.querySelector('.technical').open=true;
+  details.scrollTop=scroll;restoreFocus(details,focus);
+  details.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent='已复制'}catch{b.textContent='复制失败'}});
+  $('attemptPrev').onclick=()=>{attemptOffset=Math.max(0,attemptOffset-200);loadDetail()};
+  $('attemptNext').onclick=()=>{attemptOffset+=200;loadDetail()};
+ }catch(e){$('message').textContent=e.message;if(renderedDetail!==wanted)details.innerHTML=emptyState('暂时无法读取请求',e.message)}
+ finally{detailBusy=false;if(selected&&selected!==wanted)loadDetail()}
+}
+$('expandAll').onclick=()=>{for(const r of rows)openSessions.add(r.session_id||('missing:'+r.id));saveOpenSessions();renderFeed(Date.now())};$('collapseAll').onclick=()=>{openSessions.clear();saveOpenSessions();renderFeed(Date.now())};$('activeFirst').onchange=()=>renderFeed(Date.now());$('refresh').onclick=load;$('connect').onclick=()=>{$('key').value='';$('login').showModal()};$('cancelLogin').onclick=()=>$('login').close();$('loginButton').onclick=async()=>{auth=$('key').value.trim();try{await api('runtime');$('key').value='';$('login').close();await load()}catch(e){$('loginError').textContent=e.message}};$('key').onkeydown=e=>{if(e.key==='Enter')$('loginButton').click()};let searchTimer;$('search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(filter,350)};$('phase').onchange=filter;$('clear').onclick=()=>{$('search').value='';$('phase').value='all';filter()};$('prev').onclick=()=>{offset=Math.max(0,offset-200);selected='';attemptOffset=0;load()};$('next').onclick=()=>{offset+=200;selected='';attemptOffset=0;load()};setInterval(()=>{if($('auto').checked&&!document.hidden)load()},5000);if(embeddedAuth){$('connect').hidden=true;}if(auth)load();else $('login').showModal();
+</script></body></html>

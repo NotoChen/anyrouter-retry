@@ -1,0 +1,21 @@
+# Merge this block into the existing CPA config.yaml.
+# Provider API keys stay in CPA; this plugin only reads eligible credentials
+# through the configured CPA file and never copies them into plugin storage.
+plugins:
+  enabled: true
+  dir: plugins
+  configs:
+    anyrouter-retry:
+      enabled: true
+      accept_new_requests: true
+      config_path: /CLIProxyAPI/config.yaml
+      upstream_hosts: [anyrouter.top]
+      models: [gpt-6-astra]
+      max_attempts: 0
+      heartbeat_interval: 5s
+      retry_delay: 0s
+      max_bootstrap_bytes: 8388608
+      max_sse_frame_bytes: 67108864
+      trace_dir: /CLIProxyAPI/plugins/anyrouter-retry-data
+      trace_retention_days: 7
+      trace_max_bytes_per_request: 33554432
