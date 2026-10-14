@@ -1,0 +1,13 @@
+backups/
+dist/
+integration/live-verification*.json
+integration/hot-reload/
+__pycache__/
+logs/
+*.swp
+.DS_Store
+
+integration/*.json
+integration/*.jsonl
+integration/*.md
+VERIFICATION.local.md
