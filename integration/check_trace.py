@@ -38,7 +38,7 @@ def wait(fn, seconds=8):
     raise AssertionError('condition not reached')
 
 if __name__ == '__main__':
-    wait(lambda: api('/v0/management/plugins/anyrouter-retry/runtime')['version']=='0.1.12')
+    wait(lambda: api('/v0/management/plugins/anyrouter-retry/runtime')['version']=='0.1.13')
     stamp=str(time.time_ns())
     session='trace-session-retry-'+stamp
     wait_session='trace-waiting-'+stamp

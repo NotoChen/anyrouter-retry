@@ -268,8 +268,8 @@ dialog input {width: 100%; margin: 16px 0 10px}
 <script>
 'use strict';
 const $=id=>document.getElementById(id), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const labels={accepted:'已接收',waiting_upstream:'等待上游',retrying:'正在重试',streaming:'正在输出',completed:'已完成',failed:'失败',interrupted:'输出后中断',cancelled:'已取消',permanent_error:'永久错误',credential_rejected:'凭据已排除',retry:'失败后重试',unknown_after_restart:'重启后结果未知'};
-const color=p=>p==='completed'?'green':['failed','permanent_error','interrupted','credential_rejected'].includes(p)?'red':['waiting_upstream','retrying','retry'].includes(p)?'yellow':p==='streaming'?'blue':'';
+const labels={accepted:'已接收',waiting_upstream:'等待上游',retrying:'正在重试',streaming:'正在输出',completed:'已完成',failed:'失败',interrupted:'输出后中断',cancelled:'已取消',permanent_error:'永久错误',credential_rejected:'凭据已排除',runtime_sync:'等待 CPA 凭据同步',retry:'失败后重试',unknown_after_restart:'重启后结果未知'};
+const color=p=>p==='completed'?'green':['failed','permanent_error','interrupted','credential_rejected'].includes(p)?'red':['waiting_upstream','retrying','runtime_sync','retry'].includes(p)?'yellow':p==='streaming'?'blue':'';
 const badge=p=>`<span class="status ${color(p)}">${esc(labels[p]||p)}</span>`;
 const clock=n=>n?new Date(n).toLocaleTimeString('zh-CN',{hour12:false}):'—';
 const date=n=>n?new Date(n).toLocaleString('zh-CN',{hour12:false}):'—';

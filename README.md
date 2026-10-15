@@ -4,7 +4,7 @@
 
 插件在 CPA 内部重新发起上游尝试，保持同一个客户端 SSE 连接，并在收到可用上游的 `response.completed` 后才把成功结果交付给下游。这样，Codex 可以继续等待 CPA 的内部重试，减少因上游短暂失败触发的客户端 `reconnect`。
 
-当前版本：**0.1.12**
+当前版本：**0.1.13**
 
 仓库：[NotoChen/anyrouter-retry](https://github.com/NotoChen/anyrouter-retry)
 许可证：[MIT](LICENSE)
@@ -27,10 +27,14 @@
 
 1. 在 CPA 的模型路由阶段检查请求格式、模型名称和上游域名。只有匹配配置的独占 AnyRouter 模型才进入插件。
 2. 从 CPA 当前配置中发现符合条件的凭据，并通过 CPA 的认证管理器获得可用凭据标识。插件不会复制或持久化 API key。
-3. 通过 `host.model.execute_stream` 发起一次上游请求，同时向客户端发送 keepalive。
-4. 暂存 `response.created`、`response.in_progress` 等启动事件。若上游在产生内容前返回可重试错误，则关闭本次流并轮换到下一组凭据。
-5. 首个内容事件到达后，立即转发暂存的启动事件和当前内容，之后逐帧转发上游 SSE。
-6. 收到 `response.completed` 后结束请求并记录成功；客户端取消、永久错误、凭据全部不可用或达到显式尝试次数上限时结束请求。
+3. 在请求开始时建立候选顺序，并按凭据稳定 ID 轮询。每次准备下一次生成前重试时，插件只检查 CPA 配置文件的大小和修改时间；检测到保存后才重新解析。新凭据追加到当前请求队列末尾，配置重排不会改变已经走过的轮询位置。
+4. 通过 `host.model.execute_stream` 发起一次上游请求，同时向客户端发送 keepalive。
+5. 暂存 `response.created`、`response.in_progress` 等启动事件。若上游在产生内容前返回可重试错误，则关闭本次流并轮换到下一组凭据。
+6. 如果配置发生变化，插件会在下一次重试前增量发现新增或更新的凭据。如果 CPA 返回当前 `auth_index` 已不存在，再执行完整刷新并移除已删除或已替换的旧凭据；这也覆盖 CPA AuthManager 异步刷新窗口。
+7. 首个内容事件到达后，立即转发暂存的启动事件和当前内容，之后逐帧转发上游 SSE。
+8. 收到 `response.completed` 后结束请求并记录成功；客户端取消、永久错误、凭据全部不可用或达到显式尝试次数上限时结束请求。
+
+这里的“运行中的请求”是一个已经进入 CPA `executor.execute_stream` 的单次 HTTP/SSE 请求，包含插件为它执行的多次上游尝试；它通常对应 Codex 一个 turn。Codex 的 session 会连续产生多个 turn，每个 turn 都会创建新的 CPA 请求并读取当时的最新配置。新增供应商只能加入当前请求尚未提交输出的后续尝试，不能把已经输出过的请求从头重放。
 
 插件不会改写请求体、提示词、reasoning 参数或模型参数，也不会修改 Codex 会话历史。
 
@@ -54,11 +58,11 @@
 
 从 [Releases](https://github.com/NotoChen/anyrouter-retry/releases) 下载与 CPA 运行平台匹配的文件，并校验 `checksums.txt`。
 
-当前 `v0.1.12` Release 提供：
+当前 `v0.1.13` Release 提供：
 
 ```text
-anyrouter-retry-v0.1.12.so
-anyrouter-retry_0.1.12_linux_arm64.zip
+anyrouter-retry-v0.1.13.so
+anyrouter-retry_0.1.13_linux_arm64.zip
 checksums.txt
 ```
 
@@ -67,13 +71,13 @@ checksums.txt
 将动态库放入 CPA 的插件目录，目录格式为：
 
 ```text
-<CPA 插件目录>/<GOOS>/<GOARCH>/anyrouter-retry-v0.1.12.so
+<CPA 插件目录>/<GOOS>/<GOARCH>/anyrouter-retry-v0.1.13.so
 ```
 
 例如 Linux arm64：
 
 ```text
-/CLIProxyAPI/plugins/linux/arm64/anyrouter-retry-v0.1.12.so
+/CLIProxyAPI/plugins/linux/arm64/anyrouter-retry-v0.1.13.so
 ```
 
 版本升级时使用新的版本文件名，并按 CPA 支持的方式触发插件重载。不要覆盖仍被运行中进程加载的动态库文件。
@@ -113,7 +117,7 @@ plugins:
 request-retry: 0
 ```
 
-插件会拒绝接管仍配置了原生重试的匹配凭据，以避免 CPA 原生重试和插件重试叠加，造成次数失控、等待时间放大或调用记录难以区分。
+插件只把 `request-retry: 0` 的匹配凭据加入候选池，以避免 CPA 原生重试和插件重试叠加，造成次数失控、等待时间放大或调用记录难以区分。供应商在可视化界面保存期间暂时缺少该字段，或明确保留原生重试的凭据，会被插件跳过；如果没有其他合规 AnyRouter 凭据，本次请求交回 CPA 原生路由。这样编辑一个供应商不会阻断其他已经配置正确的供应商。
 
 ### 5. 验证加载状态
 
@@ -190,7 +194,7 @@ transient_codes:
 
 ## CPA 原生配置关系
 
-本插件接管的请求在插件内部决定是否继续尝试；匹配凭据的 `request-retry` 应设置为 `0`，以保持调用次数和等待行为可控。
+本插件接管的请求在插件内部决定是否继续尝试；只有 `request-retry: 0` 的匹配凭据会进入插件候选池，以保持调用次数和等待行为可控。其他匹配凭据会被跳过，避免配置编辑窗口或某个供应商的原生重试设置阻断整个 AnyRouter 候选池。
 
 `codex.stream-bootstrap-buffering` 不属于本插件的必需开关。插件分别管理自己的启动事件缓冲和单个 SSE 帧大小；该 CPA 配置保持启用或关闭都不会改变插件的重试判定。CPA 在 `host.model.execute_stream` 内部的认证调度、网络等待和启动事件处理仍会影响每次尝试返回给插件的时间。
 
@@ -253,7 +257,8 @@ python3 control.py on
 
 - `off`：只影响后续匹配请求；正在插件内重试或输出的请求继续使用创建时的配置。
 - `on`：后续匹配请求重新进入插件；已经走 CPA 原生路径的请求不会迁移。
-- 配置重载：已经运行的请求继续使用创建时的配置，新的请求使用新配置。
+- 配置重载：已经运行的请求继续使用创建时的插件配置；在尚未提交正文、reasoning 或工具调用的生成前重试阶段，检测到 CPA 配置保存后会把新增凭据安全追加到当前请求队列。配置删除或 API key 替换会在 CPA 明确报告旧凭据不存在后完成清理。新的请求从最新配置开始。
+- 配置同步保护只在 CPA 报告凭据不存在或配置文件正处于保存窗口时等待最多约 500ms；普通的 `retry_delay: 0s` 上游重试仍然立即进行。
 - 热更新：旧实例保留已有连接，新实例处理后续新连接。
 
 CPA 的宿主硬禁用、删除插件或关闭全局插件系统会销毁插件回调。此类操作可能中断正在运行的客户端流，无法提供无损保证。需要保留进行中的请求时，应先使用 `accept_new_requests: false`，等待活动请求结束后再进行卸载或停机。
@@ -269,7 +274,7 @@ CPA 的宿主硬禁用、删除插件或关闭全局插件系统会销毁插件�
 构建脚本在 `golang:1.26-bookworm` 容器中执行 race 测试，并生成：
 
 ```text
-dist/anyrouter-retry-v0.1.12.so
+dist/anyrouter-retry-v0.1.13.so
 ```
 
 也可以直接运行本地测试：
@@ -321,4 +326,4 @@ anyrouter-retry/
 
 ## 发布说明
 
-当前公开版本为 `v0.1.12`。发布动态库、平台归档和校验文件位于 [GitHub Releases](https://github.com/NotoChen/anyrouter-retry/releases)。将仓库公开到 GitHub 不会自动把插件加入 CPA 的公共插件注册中心；公共商店仍需要对应的插件清单、版本信息、平台归档和校验值。
+当前公开版本为 `v0.1.13`。发布动态库、平台归档和校验文件位于 [GitHub Releases](https://github.com/NotoChen/anyrouter-retry/releases)。将仓库公开到 GitHub 不会自动把插件加入 CPA 的公共插件注册中心；公共商店仍需要对应的插件清单、版本信息、平台归档和校验值。

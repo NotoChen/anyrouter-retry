@@ -253,7 +253,7 @@ func (t *requestTrace) finishAttempt(c *Config, outcome string, err error) {
 		copy := *a
 		t.LastFailure = &copy
 	}
-	if outcome == "retry" || outcome == "credential_rejected" {
+	if outcome == "retry" || outcome == "credential_rejected" || outcome == "runtime_sync" {
 		t.Phase = "retrying"
 	}
 	raw, _ := json.Marshal(a)

@@ -233,8 +233,13 @@ func candidates(c *Config, model string, strict bool) ([]credential, error) {
 		if !c.isAny(e) {
 			return nil, nil
 		}
+		// A provider can be observed while the CPA UI is saving it, before
+		// request-retry is written back.  Do not let one incomplete or
+		// intentionally native-retry credential disable every other eligible
+		// AnyRouter credential.  If no compliant credential remains, returning
+		// an empty set lets CPA use its native route for that request.
 		if strict && (e.Retry == nil || *e.Retry != 0) {
-			return nil, fmt.Errorf("AnyRouter credentials must set request-retry: 0 to avoid nested retries")
+			continue
 		}
 		out = append(out, e)
 	}

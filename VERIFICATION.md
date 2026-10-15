@@ -2,12 +2,13 @@
 
 This file contains reproducible checks for the distributable repository. Machine-specific configuration backups, request traces, browser screenshots, and local session identifiers stay outside the public repository.
 
-## v0.1.12
+## v0.1.13
 
 - `go test ./...` passed.
 - `go test -race ./...` passed.
 - The embedded dashboard JavaScript passed `node --check`.
 - The plugin builds as a CPA C-ABI shared library with the repository build script.
+- Request-local candidate pools detect a CPA config save between pre-output retries and append newly added credentials without changing the existing cursor; deletion and API-key replacement still wait for CPA `auth_not_found` before full removal.
 - The integration test harness covers pre-output retry sequences, HTTP 408/425/429 and transient 5xx responses, SSE fragmentation, delayed streams, permanent request errors, output-after-retry boundaries, concurrent session identity, management authentication, lifecycle switching, and hot reload.
 - The dashboard uses CPA Manager Plus's existing same-origin theme bridge and does not add a second theme controller.
 

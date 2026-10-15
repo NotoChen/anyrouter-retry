@@ -35,23 +35,27 @@ func testConfig(t *testing.T) *Config {
 }
 
 type mockHost struct {
-	mu          sync.Mutex
-	t           *testing.T
-	auth        []authEntry
-	attempt     int
-	read        int
-	failures    int
-	fail        string
-	partial     bool
-	undelimited bool
-	eventLines  bool
-	output      strings.Builder
-	closed      string
-	blocking    bool
-	block       chan struct{}
-	closeOnce   sync.Once
-	pause       chan struct{}
-	chunks      [][]byte
+	mu             sync.Mutex
+	t              *testing.T
+	auth           []authEntry
+	attempt        int
+	read           int
+	failures       int
+	fail           string
+	partial        bool
+	undelimited    bool
+	eventLines     bool
+	output         strings.Builder
+	closed         string
+	blocking       bool
+	block          chan struct{}
+	closeOnce      sync.Once
+	pause          chan struct{}
+	chunks         [][]byte
+	resetMissing   map[string]bool
+	executeMissing map[string]bool
+	onReset        func()
+	executed       []string
 }
 
 func assign(out, v any) error { raw, _ := json.Marshal(v); return json.Unmarshal(raw, out) }
@@ -65,7 +69,19 @@ func (m *mockHost) call(method string, p any, out any) error {
 	switch method {
 	case "host.auth.list":
 		return assign(out, map[string]any{"files": m.auth})
-	case "host.routing.reset_cooldown", "host.log":
+	case "host.routing.reset_cooldown":
+		params := p.(map[string]any)
+		index, _ := params["auth_index"].(string)
+		if m.onReset != nil {
+			callback := m.onReset
+			m.onReset = nil
+			callback()
+		}
+		if m.resetMissing[index] {
+			return &rpcError{Code: "auth_not_found", Message: "auth not found for auth_index " + index}
+		}
+		return nil
+	case "host.log":
 		return nil
 	case "host.stream.emit":
 		m.output.Write(p.(map[string]any)["payload"].([]byte))
@@ -74,6 +90,13 @@ func (m *mockHost) call(method string, p any, out any) error {
 		m.closed = p.(map[string]any)["error"].(string)
 		return nil
 	case "host.model.execute_stream":
+		if request, ok := p.(modelRequest); ok {
+			m.executed = append(m.executed, request.AuthID)
+			if m.executeMissing[request.AuthID] {
+				m.attempt++
+				return &rpcError{Code: "auth_not_found", Message: "auth not found for auth_index " + request.AuthID}
+			}
+		}
 		m.attempt++
 		m.read = 0
 		return assign(out, modelStream{Status: 200, ID: "upstream"})
@@ -142,6 +165,123 @@ func setupRun(t *testing.T, c *Config, m *mockHost) *run {
 	m.auth = []authEntry{{ID: auths[0].ID, Index: "index", Provider: "codex"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &run{c: c, ctx: ctx, cancel: cancel, req: executorRequest{Model: "gpt-6-astra", StreamID: "outer", CallbackID: "cb"}, call: m.call}
+}
+
+func multiCredentialConfig(t *testing.T) (*Config, []authEntry) {
+	t.Helper()
+	c, _ := parseConfig(nil)
+	c.ConfigPath = filepath.Join(t.TempDir(), "config.yaml")
+	c.TraceDir = filepath.Join(t.TempDir(), "traces")
+	data := `codex-api-key:
+  - api-key: first
+    base-url: https://anyrouter.top/v1
+    request-retry: 0
+    models: [{name: gpt-6-astra}]
+  - api-key: second
+    base-url: https://anyrouter.top/v1
+    request-retry: 0
+    models: [{name: gpt-6-astra}]
+`
+	if err := os.WriteFile(c.ConfigPath, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	configured, err := candidates(c, "gpt-6-astra", true)
+	if err != nil || len(configured) != 2 {
+		t.Fatalf("candidates=%d err=%v", len(configured), err)
+	}
+	entries := make([]authEntry, 0, len(configured))
+	for _, entry := range configured {
+		entries = append(entries, authEntry{ID: entry.ID, Index: entry.Index, Provider: "codex", Name: entry.DisplayName})
+	}
+	return c, entries
+}
+
+func TestDeletedCredentialDuringResetRefreshesAndSwitches(t *testing.T) {
+	rotation.Store(0)
+	c, entries := multiCredentialConfig(t)
+	m := &mockHost{
+		auth:         entries,
+		resetMissing: map[string]bool{entries[0].Index: true},
+	}
+	m.onReset = func() {
+		data := `codex-api-key:
+  - api-key: second
+    base-url: https://anyrouter.top/v1
+    request-retry: 0
+    models: [{name: gpt-6-astra}]
+`
+		if err := os.WriteFile(c.ConfigPath, []byte(data), 0600); err != nil {
+			t.Fatalf("write changed config: %v", err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r := &run{c: c, ctx: ctx, cancel: cancel, req: executorRequest{Model: "gpt-6-astra", StreamID: "deleted", CallbackID: "cb"}, call: m.call}
+	r.execute()
+	if !r.completed || m.attempt != 1 || len(m.executed) != 1 || m.executed[0] != entries[1].ID {
+		t.Fatalf("completed=%v attempts=%d executed=%v closed=%s", r.completed, m.attempt, m.executed, m.closed)
+	}
+}
+
+func TestMissingCredentialDuringExecuteRefreshesAndSwitches(t *testing.T) {
+	rotation.Store(0)
+	c, entries := multiCredentialConfig(t)
+	m := &mockHost{
+		auth:           entries,
+		executeMissing: map[string]bool{entries[0].ID: true},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r := &run{c: c, ctx: ctx, cancel: cancel, req: executorRequest{Model: "gpt-6-astra", StreamID: "execute-missing", CallbackID: "cb"}, call: m.call}
+	r.execute()
+	if !r.completed || m.attempt != 2 || len(m.executed) != 2 || m.executed[0] != entries[0].ID || m.executed[1] != entries[1].ID {
+		t.Fatalf("completed=%v attempts=%d executed=%v closed=%s", r.completed, m.attempt, m.executed, m.closed)
+	}
+	if r.trace.RecordedAttempts != 2 || r.trace.LastFailure == nil || r.trace.LastFailure.Outcome != "runtime_sync" {
+		t.Fatalf("runtime sync was not traced: recorded=%d last=%+v", r.trace.RecordedAttempts, r.trace.LastFailure)
+	}
+}
+
+func TestNewCredentialDuringRetryJoinsCurrentRequest(t *testing.T) {
+	rotation.Store(0)
+	c, entries := multiCredentialConfig(t)
+	m := &mockHost{
+		auth:     entries,
+		failures: 2,
+		fail:     `{"type":"error","error":{"code":"rate_limit_reached"}}`,
+	}
+	var addedID string
+	m.onReset = func() {
+		data := `codex-api-key:
+  - api-key: first
+    base-url: https://anyrouter.top/v1
+    request-retry: 0
+    models: [{name: gpt-6-astra}]
+  - api-key: second
+    base-url: https://anyrouter.top/v1
+    request-retry: 0
+    models: [{name: gpt-6-astra}]
+  - api-key: added-while-running
+    base-url: https://anyrouter.top/v1
+    request-retry: 0
+    models: [{name: gpt-6-astra}]
+`
+		if err := os.WriteFile(c.ConfigPath, []byte(data), 0600); err != nil {
+			t.Fatalf("write added config: %v", err)
+		}
+		configured, err := candidates(c, "gpt-6-astra", true)
+		if err != nil || len(configured) != 3 {
+			t.Fatalf("discover added credential: %d %v", len(configured), err)
+		}
+		addedID = configured[2].ID
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r := &run{c: c, ctx: ctx, cancel: cancel, req: executorRequest{Model: "gpt-6-astra", StreamID: "added", CallbackID: "cb"}, call: m.call}
+	r.execute()
+	if !r.completed || m.attempt != 3 || len(m.executed) != 3 {
+		t.Fatalf("completed=%v attempts=%d executed=%v closed=%s", r.completed, m.attempt, m.executed, m.closed)
+	}
+	if m.executed[0] != entries[0].ID || m.executed[1] != entries[1].ID || m.executed[2] != addedID {
+		t.Fatalf("new credential did not join in stable order: executed=%v added=%s", m.executed, addedID)
+	}
 }
 
 func TestMoreThan100RetriesOneStream(t *testing.T) {
@@ -309,6 +449,29 @@ func TestMixedSupplierRouteFallsThrough(t *testing.T) {
 	a, e := candidates(c, "gpt-6-astra", true)
 	if e != nil || len(a) != 0 {
 		t.Fatal("router hijacked mixed supplier model")
+	}
+}
+
+func TestIncompleteAnyRouterCredentialDoesNotBlockCompliantPeer(t *testing.T) {
+	c := testConfig(t)
+	f, _ := os.OpenFile(c.ConfigPath, os.O_APPEND|os.O_WRONLY, 0600)
+	_, _ = f.WriteString("  - api-key: incomplete\n    base-url: https://anyrouter.top/v1\n    models: [{name: gpt-6-astra}]\n")
+	_ = f.Close()
+	a, e := candidates(c, "gpt-6-astra", true)
+	if e != nil || len(a) != 1 {
+		t.Fatalf("eligible=%d error=%v", len(a), e)
+	}
+}
+
+func TestAuthMissingErrorDetection(t *testing.T) {
+	if !isAuthMissingError(&rpcError{Code: "auth_not_found", Message: "credential disappeared"}) {
+		t.Fatal("auth_not_found code was not detected")
+	}
+	if !isAuthMissingError(fmt.Errorf("auth not found for auth_index abc")) {
+		t.Fatal("auth not found message was not detected")
+	}
+	if isAuthMissingError(fmt.Errorf("auth unavailable from upstream")) {
+		t.Fatal("provider auth_unavailable was misclassified as runtime deletion")
 	}
 }
 

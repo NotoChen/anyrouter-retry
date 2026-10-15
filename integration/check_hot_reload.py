@@ -26,7 +26,7 @@ if __name__ == "__main__":
             time.sleep(.05)
         # The isolated host selects filenames by version. This fixture is
         # identical corrected code with a higher test selection version.
-        shutil.copy2(root / "dist/anyrouter-retry-v0.1.12.so", root / "dist/anyrouter-retry-v0.1.13.so")
+        shutil.copy2(root / "dist/anyrouter-retry-v0.1.13.so", root / "dist/anyrouter-retry-v0.1.14.so")
         cfg = root / "integration/config.yaml"
         with cfg.open("a") as file:
             file.write("\n# hot reload while the downstream client remains open\n")

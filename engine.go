@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -157,7 +158,7 @@ func (r *run) heartbeats() {
 }
 
 func (r *run) log(attempt int, kind string) {
-	if kind == "retry" && attempt > 3 && attempt%25 != 0 {
+	if (kind == "retry" || kind == "runtime_sync") && attempt > 3 && attempt%25 != 0 {
 		return
 	}
 	_ = r.call("host.log", map[string]any{"host_callback_id": r.req.CallbackID, "level": "info", "message": fmt.Sprintf("anyrouter-retry %s attempt=%d", kind, attempt), "fields": map[string]any{"model": r.req.Model, "stream_id": r.req.StreamID}}, nil)
@@ -199,6 +200,145 @@ func (r *run) discover() ([]authEntry, error) {
 	return out, nil
 }
 
+const (
+	// CPA's provider watcher normally applies a config save quickly, but a
+	// request can observe the file in the middle of an atomic/UI write.  This
+	// small bounded retry is only used while discovering credentials; ordinary
+	// upstream retries remain immediate when retry_delay is 0s.
+	discoveryRetryCount = 20
+	discoveryRetryDelay = 25 * time.Millisecond
+)
+
+func isTransientDiscoveryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	for _, text := range []string{
+		"cannot read cpa config",
+		"cannot parse cpa config",
+		"cannot parse grouped codex config",
+		"invalid codex group",
+		"invalid codex key",
+		"anyrouter credentials must set request-retry",
+	} {
+		if strings.Contains(s, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func isNoEligibleCredentialError(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "no enabled eligible anyrouter credential")
+}
+
+func waitForDiscovery(ctx context.Context) error {
+	t := time.NewTimer(discoveryRetryDelay)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+func (r *run) discoverStable() ([]authEntry, error) {
+	var last error
+	for i := 0; i < discoveryRetryCount; i++ {
+		entries, err := r.discover()
+		if err == nil {
+			return entries, nil
+		}
+		last = err
+		if !isTransientDiscoveryError(err) || i == discoveryRetryCount-1 {
+			return nil, err
+		}
+		if err = waitForDiscovery(r.ctx); err != nil {
+			return nil, err
+		}
+	}
+	return nil, last
+}
+
+func isAuthMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	if strings.Contains(s, "auth not found") || strings.Contains(s, "auth index not found") || strings.Contains(s, "auth_index not found") {
+		return true
+	}
+	var rpc *rpcError
+	if errors.As(err, &rpc) {
+		code := strings.ToLower(rpc.Code)
+		if strings.Contains(code, "auth") && strings.Contains(code, "not_found") {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *run) refreshPool(pool *candidatePool) error {
+	entries, err := r.discoverStable()
+	if err != nil && isNoEligibleCredentialError(err) && len(pool.entries) > 0 {
+		// A UI save can briefly expose a complete YAML document with no
+		// compliant request-retry entry before the final provider state is
+		// written.  Give the watcher one short generation to settle; a second
+		// empty result still means the user removed every eligible credential.
+		if waitErr := waitForDiscovery(r.ctx); waitErr != nil {
+			return waitErr
+		}
+		entries, err = r.discoverStable()
+	}
+	if err != nil {
+		return err
+	}
+	pool.refresh(entries)
+	return nil
+}
+
+// configFingerprint is intentionally small because it is checked before every
+// retry. The full CPA config is parsed only when this fingerprint changes.
+// Size plus nanosecond mtime also catches the atomic replace used by CPAMA's
+// config writer without adding a read or YAML parse to the hot retry path.
+type configFingerprint struct {
+	size    int64
+	modTime int64
+}
+
+func currentConfigFingerprint(path string) (configFingerprint, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return configFingerprint{}, false
+	}
+	return configFingerprint{size: info.Size(), modTime: info.ModTime().UnixNano()}, true
+}
+
+// mergeNewCandidates observes a config save between upstream attempts. It is
+// deliberately additive: deletions and API-key replacements remain in the
+// request-local pool until CPA rejects their old auth identity, at which point
+// refreshPool performs the authoritative removal. This keeps a config reorder
+// from changing the already-running request's rotation order.
+func (r *run) mergeNewCandidates(pool *candidatePool, last *configFingerprint, initialized *bool) error {
+	fingerprint, ok := currentConfigFingerprint(r.c.ConfigPath)
+	if !ok || *initialized && fingerprint == *last {
+		return nil
+	}
+	entries, err := r.discoverStable()
+	if err != nil {
+		// Keep the current pool during an in-progress or temporarily incomplete
+		// UI save. The next attempt will retry discovery because the last good
+		// fingerprint remains unchanged.
+		return err
+	}
+	pool.mergeAdditions(entries)
+	*last = fingerprint
+	*initialized = true
+	return nil
+}
+
 func (r *run) execute() {
 	r.trace = newRequestTrace(r.c, r.req)
 	defer active.Delete(r.req.StreamID)
@@ -227,37 +367,82 @@ func (r *run) execute() {
 		defer close(heartbeatDone)
 		r.heartbeats()
 	}()
+	entries, err := r.discoverStable()
+	if err != nil {
+		final = err
+		return
+	}
+	pool := newCandidatePool(entries)
+	poolFingerprint, havePoolFingerprint := currentConfigFingerprint(r.c.ConfigPath)
+	poolFingerprintInitialized := havePoolFingerprint
 	blocked := map[string]bool{}
-	start := int(rotation.Add(1) - 1)
-	for attempt := 1; r.c.MaxAttempts == 0 || attempt <= r.c.MaxAttempts; attempt++ {
+	// A reset/execute callback can race with CPA's asynchronous AuthManager
+	// refresh.  These IDs are skipped for the current discovery generation;
+	// when all candidates are in this state we wait briefly, rediscover, and
+	// try the surviving/new set again.
+	syncUnavailable := map[string]bool{}
+	for attempt := 1; r.c.MaxAttempts == 0 || attempt <= r.c.MaxAttempts; {
 		if r.ctx.Err() != nil {
 			return
 		}
-		auths, err := r.discover()
-		if err != nil {
-			final = err
-			return
-		}
-		var chosen *authEntry
-		for offset := 0; offset < len(auths); offset++ {
-			a := auths[(start+attempt-1+offset)%len(auths)]
-			if !blocked[a.ID] {
-				chosen = &a
-				break
+		// A new supplier saved while this request is still waiting for a
+		// generation can join the subsequent rotation. This check happens only
+		// between upstream attempts; once output has been committed, the request
+		// is never replayed and the loop exits below.
+		if syncErr := r.mergeNewCandidates(pool, &poolFingerprint, &poolFingerprintInitialized); syncErr != nil {
+			if !isTransientDiscoveryError(syncErr) && !isNoEligibleCredentialError(syncErr) {
+				final = syncErr
+				return
 			}
 		}
-		if chosen == nil {
+		skip := make(map[string]bool, len(blocked)+len(syncUnavailable))
+		for id := range blocked {
+			skip[id] = true
+		}
+		for id := range syncUnavailable {
+			skip[id] = true
+		}
+		chosen, ok := pool.next(skip)
+		if !ok && len(syncUnavailable) > 0 {
+			// All currently visible candidates are waiting for CPA's runtime
+			// AuthManager to catch up with the config file.
+			if err = waitForDiscovery(r.ctx); err != nil {
+				return
+			}
+			if err = r.refreshPool(pool); err != nil {
+				final = err
+				return
+			}
+			syncUnavailable = map[string]bool{}
+			continue
+		}
+		if !ok {
 			final = fmt.Errorf("all eligible AnyRouter credentials rejected authentication or model access")
 			return
 		}
 		// Reset only this transient routing state so native cooldown cannot
 		// turn subsequent pinned attempts into busy-spin auth_unavailable errors.
 		if err = r.call("host.routing.reset_cooldown", map[string]any{"auth_index": chosen.Index}, nil); err != nil {
+			if isAuthMissingError(err) {
+				syncUnavailable[chosen.ID] = true
+				if err = r.refreshPool(pool); err != nil {
+					final = err
+					return
+				}
+				continue
+			}
 			final = fmt.Errorf("cannot reset AnyRouter retry state")
 			return
 		}
-		r.trace.startAttempt(*chosen, attempt)
-		err = r.attempt(*chosen)
+		// A different credential becoming usable is evidence that the host
+		// runtime has progressed.  Give previously missing IDs another chance
+		// on the next round instead of starving them behind one surviving
+		// credential that keeps returning transient upstream errors.
+		if len(syncUnavailable) > 0 {
+			syncUnavailable = map[string]bool{}
+		}
+		r.trace.startAttempt(chosen, attempt)
+		err = r.attempt(chosen)
 		if r.completed {
 			r.trace.finishAttempt(r.c, "completed", nil)
 			r.log(attempt, "completed")
@@ -272,6 +457,17 @@ func (r *run) execute() {
 			final = err
 			r.log(attempt, "interrupted_after_output")
 			return
+		}
+		if isAuthMissingError(err) {
+			r.trace.finishAttempt(r.c, "runtime_sync", err)
+			r.log(attempt, "runtime_sync")
+			syncUnavailable[chosen.ID] = true
+			attempt++
+			if err = r.refreshPool(pool); err != nil {
+				final = err
+				return
+			}
+			continue
 		}
 		status := 0
 		var rpc *rpcError
@@ -302,6 +498,7 @@ func (r *run) execute() {
 			case <-time.After(r.c.delay):
 			}
 		}
+		attempt++
 	}
 	final = fmt.Errorf("anyrouter-retry max_attempts exhausted before generation")
 }

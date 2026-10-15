@@ -14,7 +14,7 @@ def main():
     original = CONFIG.read_text()
     if re.search(r"^    anyrouter-retry:", original, re.M):
         raise SystemExit("anyrouter-retry is already configured; update its existing block instead")
-    if not (ROOT / "dist/anyrouter-retry-v0.1.12.so").is_file():
+    if not (ROOT / "dist/anyrouter-retry-v0.1.13.so").is_file():
         raise SystemExit("Run ./build.sh first")
     match = re.search(r"^codex-api-key:\n(.*?)(?=^[^\s#]|\Z)", original, re.M | re.S)
     if not match:
@@ -63,7 +63,7 @@ def main():
     fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(fd, "w") as file:
         file.write(original)
-    subprocess.run(["docker", "cp", str(ROOT / "dist/anyrouter-retry-v0.1.12.so"), "cli-proxy-api:/CLIProxyAPI/plugins/linux/arm64/anyrouter-retry-v0.1.12.so"], check=True)
+    subprocess.run(["docker", "cp", str(ROOT / "dist/anyrouter-retry-v0.1.13.so"), "cli-proxy-api:/CLIProxyAPI/plugins/linux/arm64/anyrouter-retry-v0.1.13.so"], check=True)
     # Write in place: replacing a singly bind-mounted config changes its inode
     # and leaves Docker reading the old file.
     with CONFIG.open("w") as file:

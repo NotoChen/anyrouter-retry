@@ -1,6 +1,6 @@
 package main
 
-var pluginVersion = "0.1.12"
+var pluginVersion = "0.1.13"
 
 func registration() any {
 	fields := []map[string]string{
